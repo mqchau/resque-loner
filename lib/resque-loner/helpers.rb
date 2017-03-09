@@ -6,55 +6,68 @@ module Resque
       class Helpers
         extend Resque::Plugins::Loner::LegacyHelpers
 
+        def self.strip_item_job_wrapper(item)
+          serialized_job = item[:args].first.clone
+          serialized_job['arguments'].last.delete('job_state_id')
+          {
+            class: serialized_job['job_class'],
+            args: serialized_job['arguments'],
+          }
+        end
+
         def self.loner_queued?(queue, item)
-          return false unless item_is_a_unique_job?(item)
-          redis.get(unique_job_queue_key(queue, item)) == '1'
+          stripped_item = strip_item_job_wrapper(item)
+          require 'pry'; binding.pry
+          return false unless item_is_a_unique_job?(stripped_item)
+          redis.get(unique_job_queue_key(queue, stripped_item)) == '1'
         end
 
         def self.mark_loner_as_queued(queue, item)
-          return unless item_is_a_unique_job?(item)
-          key = unique_job_queue_key(queue, item)
+          stripped_item = strip_item_job_wrapper(item)
+          return unless item_is_a_unique_job?(stripped_item)
+          key = unique_job_queue_key(queue, stripped_item)
           redis.set(key, 1)
-          unless (ttl = item_ttl(item)) == -1 # no need to incur overhead for default value
+          unless (ttl = item_ttl(stripped_item)) == -1 # no need to incur overhead for default value
             redis.expire(key, ttl)
           end
         end
 
         def self.mark_loner_as_unqueued(queue, job)
           item = job.is_a?(Resque::Job) ? job.payload : job
-          return unless item_is_a_unique_job?(item)
-          unless (ttl = loner_lock_after_execution_period(item)) == 0
-            redis.expire(unique_job_queue_key(queue, item), ttl)
+          stripped_item = strip_item_job_wrapper(item)
+          return unless item_is_a_unique_job?(stripped_item)
+          unless (ttl = loner_lock_after_execution_period(stripped_item)) == 0
+            redis.expire(unique_job_queue_key(queue, stripped_item), ttl)
           else
-            redis.del(unique_job_queue_key(queue, item))
+            redis.del(unique_job_queue_key(queue, stripped_item))
           end
         end
 
-        def self.unique_job_queue_key(queue, item)
-          job_key = constantize(item[:class] || item['class']).redis_key(item)
+        def self.unique_job_queue_key(queue, stripped_item)
+          job_key = constantize(stripped_item[:class] || stripped_item['class']).redis_key(stripped_item)
           "loners:queue:#{queue}:job:#{job_key}"
         end
 
-        def self.item_is_a_unique_job?(item)
+        def self.item_is_a_unique_job?(stripped_item)
           begin
-            klass = constantize(item[:class] || item['class'])
+            klass = constantize(stripped_item[:class] || stripped_item['class'])
             klass.included_modules.include?(::Resque::Plugins::UniqueJob)
           rescue
             false # Resque testsuite also submits strings as job classes while Resque.enqueue'ing,
           end     # so resque-loner should not start throwing up when that happens.
         end
 
-        def self.item_ttl(item)
+        def self.item_ttl(stripped_item)
           begin
-            constantize(item[:class] || item['class']).loner_ttl
+            constantize(stripped_item[:class] || stripped_item['class']).loner_ttl
           rescue
             -1
           end
         end
 
-        def self.loner_lock_after_execution_period(item)
+        def self.loner_lock_after_execution_period(stripped_item)
           begin
-            constantize(item[:class] || item['class']).loner_lock_after_execution_period
+            constantize(stripped_item[:class] || stripped_item['class']).loner_lock_after_execution_period
           rescue
             0
           end
