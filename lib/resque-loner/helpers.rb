@@ -7,7 +7,7 @@ module Resque
         extend Resque::Plugins::Loner::LegacyHelpers
 
         def self.strip_item_job_wrapper(item)
-          serialized_job = item[:args].first.clone
+          serialized_job = item.with_indifferent_access[:args].first.clone
           serialized_job['arguments'].last.delete('job_state_id')
           {
             class: serialized_job['job_class'],
@@ -23,6 +23,7 @@ module Resque
         end
 
         def self.mark_loner_as_queued(queue, item)
+          require 'pry'; binding.pry
           stripped_item = strip_item_job_wrapper(item)
           return unless item_is_a_unique_job?(stripped_item)
           key = unique_job_queue_key(queue, stripped_item)
