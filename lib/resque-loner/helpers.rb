@@ -17,13 +17,11 @@ module Resque
 
         def self.loner_queued?(queue, item)
           stripped_item = strip_item_job_wrapper(item)
-          require 'pry'; binding.pry
           return false unless item_is_a_unique_job?(stripped_item)
           redis.get(unique_job_queue_key(queue, stripped_item)) == '1'
         end
 
         def self.mark_loner_as_queued(queue, item)
-          require 'pry'; binding.pry
           stripped_item = strip_item_job_wrapper(item)
           return unless item_is_a_unique_job?(stripped_item)
           key = unique_job_queue_key(queue, stripped_item)
